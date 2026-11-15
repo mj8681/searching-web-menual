@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>에디터 호환 검색 엔진</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #fff; margin: 0; padding: 30px 16px; display: flex; flex-direction: column; align-items: center; }
+    .header { width: 100%; max-width: 680px; text-align: center; margin-top: 6vh; transition: margin-top 0.3s; }
+    body.has-results .header { margin-top: 0; }
+    .logo { font-size: 44px; font-weight: 800; margin-bottom: 20px; user-select: none; }
+    .c1 { color: #4285f4; } .c2 { color: #ea4335; } .c3 { color: #fbbc05; } .c4 { color: #34a853; }
+    .search-box { display: flex; align-items: center; width: 100%; border: 1px solid #dfe1e5; border-radius: 28px; padding: 6px 16px; box-shadow: 0 2px 8px rgba(32,33,36,0.12); }
+    .search-input { flex: 1; border: none; outline: none; font-size: 16px; padding: 10px 8px; }
+    .search-btn { background: #4285f4; color: #fff; border: none; border-radius: 20px; padding: 9px 20px; font-size: 14px; font-weight: bold; cursor: pointer; }
+    .search-btn:hover { background: #3367d6; }
+    .tabs { display: none; width: 100%; max-width: 680px; border-bottom: 1px solid #e8eaed; margin-top: 20px; gap: 6px; }
+    body.has-results .tabs { display: flex; }
+    .tab-btn { background: none; border: none; border-bottom: 3px solid transparent; padding: 10px 14px; font-size: 14px; font-weight: bold; color: #5f6368; cursor: pointer; }
+    .tab-btn.active { color: #1a73e8; border-bottom-color: #1a73e8; }
+    .results-container { width: 100%; max-width: 680px; margin-top: 18px; }
+    .status-text { font-size: 13px; color: #70757a; margin-bottom: 16px; }
+    .result-item { margin-bottom: 20px; padding-bottom: 14px; border-bottom: 1px solid #f1f3f4; }
+    .result-meta { font-size: 12px; color: #5f6368; margin-bottom: 4px; }
+    .result-title { display: inline-block; font-size: 18px; color: #1a0dab; text-decoration: none; font-weight: 500; margin-bottom: 6px; cursor: pointer; }
+    .result-title:hover { text-decoration: underline; }
+    .result-snippet { font-size: 14px; color: #4d5156; line-height: 1.55; }
+    .result-snippet .searchmatch { font-weight: bold; color: #202124; }
+    .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+    .image-card { border: 1px solid #e8eaed; border-radius: 10px; overflow: hidden; text-decoration: none; color: #202124; }
+    .image-card img { width: 100%; height: 120px; object-fit: cover; display: block; background: #f1f3f4; }
+    .image-card div { padding: 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">
+      <span class="c1">S</span><span class="c2">e</span><span class="c3">a</span><span class="c1">r</span><span class="c4">c</span><span class="c2">h</span>
+    </div>
+    <form class="search-box" onsubmit="startSearch(event)">
+      <input type="text" id="query" class="search-input" placeholder="검색어를 입력하세요 (예: 우주, HTML, Python, 서울)" autofocus>
+      <button type="submit" class="search-btn">검색</button>
+    </form>
+  </div>
+
+  <div class="tabs">
+    <button type="button" class="tab-btn active" onclick="switchTab('wiki', this)">백과/지식</button>
+    <button type="button" class="tab-btn" onclick="switchTab('image', this)">이미지</button>
+    <button type="button" class="tab-btn" onclick="switchTab('github', this)">개발/코드</button>
+  </div>
+
+  <div class="results-container">
+    <div id="status" class="status-text"></div>
+    <div id="results"></div>
+  </div>
+
+  <script>
+    let currentKeyword = '';
+    let currentTab = 'wiki';
+
+    // 에디터가 외부 인터넷 요청을 차단할 경우를 대비한 자체 내장 데이터
+    const localDocs = new Array(
+      { title: 'HTML (HyperText Markup Language)', url: 'https://mozilla.org', snippet: '웹 페이지의 뼈대와 구조를 정의하는 표준 마크업 언어입니다.' },
+      { title: 'CSS (Cascading Style Sheets)', url: 'https://mozilla.org', snippet: 'HTML 요소의 색상, 레이아웃, 애니메이션 등 디자인을 꾸미는 스타일 시트 언어입니다.' },
+      { title: 'JavaScript 프로그래밍', url: 'https://mozilla.org', snippet: '웹 브라우저에서 동적인 기능과 검색, 계산기 등을 구현하는 프로그래밍 언어입니다.' },
+      { title: '대한민국 서울특별시', url: 'https://wikipedia.org', snippet: '대한민국의 수도이자 최대 도시로 한강을 중심으로 발전한 정치, 경제, 문화의 중심지입니다.' },
+      { title: '우주와 태양계', url: 'https://wikipedia.org', snippet: '행성, 별, 은하 그리고 모든 물질과 에너지가 존재하는 시공간 전체를 의미합니다.' },
+      { title: 'Python (파이썬)', url: 'https://python.org', snippet: '문법이 간결하고 인공지능, 데이터 분석, 웹 개발에 널리 쓰이는 인기 프로그래밍 언어입니다.' }
+    );
+
+    function startSearch(event) {
+      event.preventDefault();
+      const keyword = document.getElementById('query').value.trim();
+      if (!keyword) return;
+      currentKeyword = keyword;
+      document.body.classList.add('has-results');
+      runTabSearch();
+    }
+
+    function switchTab(tabName, btn) {
+      currentTab = tabName;
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (currentKeyword) runTabSearch();
+    }
+
+    async function runTabSearch() {
+      const statusEl = document.getElementById('status');
+      const resultsEl = document.getElementById('results');
+      statusEl.textContent = "'" + currentKeyword + "' 검색 중...";
+      resultsEl.innerHTML = '';
+      const q = encodeURIComponent(currentKeyword);
+
+      try {
+        if (currentTab === 'wiki') {
+          const res = await fetch('https://wikipedia.org' + q + '&utf8=&format=json&origin=*');
+          const data = await res.json();
+          const items = (data.query && data.query.search) ? data.query.search : new Array();
+          renderList(items.map(item => ({
+            meta: 'Wikipedia 실시간 검색 › ' + item.title,
+            title: item.title,
+            url: 'https://wikipedia.org' + encodeURIComponent(item.title),
+            snippet: item.snippet + '...'
+          })), '실시간 웹 검색 결과');
+        } else if (currentTab === 'image') {
+          const res = await fetch('https://wikimedia.org+' + q + '&gsrnamespace=6&gsrlimit=12&prop=imageinfo&iiprop=url&iiurlwidth=300&format=json&origin=*');
+          const data = await res.json();
+          const pages = (data.query && data.query.pages) ? Object.values(data.query.pages) : new Array();
+          renderImages(pages);
+        } else if (currentTab === 'github') {
+          const res = await fetch('https://github.com' + q + '&per_page=8');
+          const data = await res.json();
+          const items = data.items || new Array();
+          renderList(items.map(repo => ({
+            meta: 'GitHub › ' + repo.full_name + ' · ★ ' + repo.stargazers_count.toLocaleString(),
+            title: repo.full_name,
+            url: repo.html_url,
+            snippet: repo.description || '저장소 설명이 없습니다.'
+          })), 'GitHub 실시간 저장소 결과');
+        }
+      } catch (err) {
+        // 에디터 샌드박스에서 외부 통신이 차단된 경우 내장 데이터에서 검색
+        const lower = currentKeyword.toLowerCase();
+        const filtered = localDocs.filter(d => d.title.toLowerCase().includes(lower) || d.snippet.toLowerCase().includes(lower));
+        const fallback = filtered.length > 0 ? filtered : localDocs;
+        renderList(fallback.map(d => ({
+          meta: '에디터 샌드박스 내장 결과 · ' + d.url,
+          title: d.title,
+          url: d.url,
+          snippet: d.snippet
+        })), '에디터 외부 통신 차단 감지됨 — 내장 샘플 결과 표시');
+      }
+    }
+
+    function renderImages(pages) {
+      const statusEl = document.getElementById('status');
+      const resultsEl = document.getElementById('results');
+      if (pages.length === 0) {
+        statusEl.textContent = "'" + currentKeyword + "'에 대한 이미지 결과가 없습니다.";
+        return;
+      }
+      statusEl.textContent = "'" + currentKeyword + "' 이미지 결과 (" + pages.length + '장)';
+      const grid = document.createElement('div');
+      grid.className = 'image-grid';
+      pages.forEach(p => {
+        const info = p.imageinfo && p.imageinfo.at(0);
+        if (!info) return;
+        const cleanTitle = p.title.replace('File:', '');
+        const card = document.createElement('a');
+        card.className = 'image-card';
+        card.href = info.descriptionurl;
+        card.target = '_blank';
+        card.rel = 'noopener noreferrer';
+        card.innerHTML = '<img src="' + info.thumburl + '" alt="' + cleanTitle + '" loading="lazy"><div>' + cleanTitle + '</div>';
+        grid.appendChild(card);
+      });
+      resultsEl.appendChild(grid);
+    }
+
+    function renderList(list, label) {
+      const statusEl = document.getElementById('status');
+      const resultsEl = document.getElementById('results');
+      if (list.length === 0) {
+        statusEl.textContent = "'" + currentKeyword + "'에 대한 검색 결과가 없습니다.";
+        return;
+      }
+      statusEl.textContent = "'" + currentKeyword + "' " + label + " (" + list.length + '건)';
+      list.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'result-item';
+        div.innerHTML =
+          '<div class="result-meta">' + item.meta + '</div>' +
+          '<a class="result-title" href="' + item.url + '" target="_blank" rel="noopener noreferrer">' + item.title + '</a>' +
+          '<div class="result-snippet">' + item.snippet + '</div>';
+        resultsEl.appendChild(div);
+      });
+    }
+  </script>
+</body>
+</html>
